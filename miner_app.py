@@ -9,10 +9,11 @@ from reports.health_report import HealthReport # Import HealthReport
 class Miner(threading.Thread):
     """
     Represents a miner in the blockchain network.
-    Mines new blocks by collecting health reports from the mempool,
-    verifying their signatures, and performing Proof of Work.
+    Miners now pick up any available health reports from the mempool
+    and attempt to mine them through Proof of Work.
     """
-    def __init__(self, miner_id, blockchain, mempool, difficulty, stop_flag, broadcast_fn, max_reports_per_block=10):
+    def __init__(self, miner_id, blockchain, mempool, difficulty, stop_flag, broadcast_fn,
+                 max_reports_per_block=10): # Removed associated_patient_id
         super().__init__()
         self.miner_id = miner_id
         self.blockchain = blockchain
@@ -27,6 +28,7 @@ class Miner(threading.Thread):
     def run(self):
         """
         The main mining loop. Continuously tries to mine new blocks.
+        Now picks up any reports from the mempool.
         """
         while True:
             # Check if another miner has already found a block
@@ -35,8 +37,8 @@ class Miner(threading.Thread):
                 break
 
             # Get transactions (health reports) from the mempool
-            # We fetch more than max_reports_per_block initially to allow for invalid ones
-            potential_reports = self.mempool.get_transactions(self.max_reports_per_block * 2) # Fetch more to compensate for invalid
+            # Miners now simply try to get max_reports_per_block transactions
+            potential_reports = self.mempool.get_transactions(self.max_reports_per_block)
             
             # If not enough reports, wait and try again
             if len(potential_reports) < self.max_reports_per_block:
@@ -47,7 +49,9 @@ class Miner(threading.Thread):
                 continue
 
             valid_reports = []
-            for report_dict in potential_reports:
+            reports_for_next_round = [] # Reports that are valid but exceed max_reports_per_block
+
+            for report_dict in potential_reports: # Iterate over all potential reports
                 # Reconstruct HealthReport object to use its verification method
                 report = HealthReport.from_dict(report_dict) # This reconstructs with bytes signature internally
                 if report.verify_signature():
@@ -56,19 +60,14 @@ class Miner(threading.Thread):
                     valid_reports.append(report.to_dict()) 
                 else:
                     self.logger.warning(f"🚨 Invalid signature for report from Doctor {report.doctor_id}. Skipping.")
-                
-                # Only take up to max_reports_per_block valid reports
-                if len(valid_reports) >= self.max_reports_per_block:
-                    break
             
-            # If after verification, we don't have enough valid reports, put the rest back and wait
-            if len(valid_reports) < self.max_reports_per_block:
-                # Put back any remaining potential reports (that weren't taken as valid)
-                # This logic could be improved to only put back unverified ones or those that didn't fit
-                # For simplicity, we'll just put back what's left if we couldn't form a full block
-                remaining_reports = [r for r in potential_reports if r not in [vr for vr in valid_reports]] # Compare original dicts
-                for r in remaining_reports:
-                    self.mempool.add_report(r)
+            # Put back valid reports that couldn't fit into this block
+            # This logic is simplified as we're not filtering by patient anymore
+            for r in reports_for_next_round:
+                self.mempool.add_report(r)
+
+            # If no valid reports were found from the fetched batch, wait and try again
+            if len(valid_reports) == 0:
                 time.sleep(0.5)
                 continue
 
@@ -82,15 +81,15 @@ class Miner(threading.Thread):
                 difficulty=self.difficulty
             )
 
-            self.logger.info("⛏️ Mining started...")
+            self.logger.info(f"⛏️ Miner {self.miner_id} mining started...") # Removed patient ID from log
             # Attempt to mine the block using Proof of Work
             mined_block = mine_block(new_block, self.difficulty, self.stop_flag)
 
             if mined_block:
-                self.logger.info(f"✅ Block #{mined_block.index} mined by Miner {self.miner_id}")
+                self.logger.info(f"✅ Block #{mined_block.index} mined by Miner {self.miner_id}") # Removed patient ID from log
+                # Print the full details of the mined block using its __str__ method
+                print(mined_block) # This line will print all the requested block and transaction details
                 self.logger.info(f"🧾 Health Report Count: {len(mined_block.transactions)}")
-                for d in mined_block.transactions:
-                    self.logger.info(f"📋 {d['patient_id']} → {d['doctor_id']}: {d['symptoms']} | {d['diagnosis']}")
                 # Broadcast the successfully mined block to the network
                 self.broadcast_fn(mined_block)
                 break # Stop mining for this round as a block has been found

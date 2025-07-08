@@ -1,6 +1,7 @@
 import time
 import hashlib
 import json
+from reports.health_report import HealthReport # Import HealthReport to use its from_dict method
 
 class Block:
     def __init__(self, index, transactions, previous_hash, difficulty):
@@ -52,6 +53,34 @@ class Block:
         }
 
     def __str__(self):
+        transactions_str = ""
+        if self.transactions:
+            for i, tx_dict in enumerate(self.transactions, 1):
+                # Reconstruct HealthReport object to easily access its attributes
+                report = HealthReport.from_dict(tx_dict)
+                vitals_str = ", ".join(f"{k}: {v}" for k, v in report.vitals.items())
+                
+                follow_up_date_str = time.ctime(report.follow_up_date) if report.follow_up_date else 'N/A'
+
+                transactions_str += (
+                    f"\n    📄 Report #{i} (Doctor: {report.doctor_id}, Patient: {report.patient_id})\n"
+                    f"      Timestamp   : {time.ctime(report.timestamp)}\n"
+                    f"      Hospital    : {report.hospital_clinic}\n" # New detail
+                    f"      Age         : {report.patient_age}\n"     # New detail
+                    f"      Gender      : {report.patient_gender}\n"   # New detail
+                    f"      Symptoms    : {report.symptoms}\n"
+                    f"      Diagnosis   : {report.diagnosis}\n"
+                    f"      Vitals      : {vitals_str}\n"
+                    f"      Medications : {report.medications}\n"
+                    f"      Allergies   : {report.allergies}\n"
+                    f"      Follow-up   : {follow_up_date_str}\n"
+                    f"      Notes       : {report.notes}\n"
+                    f"      Signed by   : {report.doctor_public_key_serialized[:10]}...\n"
+                    f"      Signature Valid: {report.verify_signature()}\n" # Display signature validity
+                )
+        else:
+            transactions_str = "\n    (No transactions in this block)"
+
         return (
             f"\n📦 Block #{self.index}\n"
             f"  Timestamp   : {time.ctime(self.timestamp)}\n"
@@ -60,5 +89,6 @@ class Block:
             f"  Merkle Root : {self.merkle_root}\n"
             f"  Prev Hash   : {self.previous_hash}\n"
             f"  Curr Hash   : {self.hash}\n"
-            f"  Transactions: {len(self.transactions)}"
+            f"  Transactions: {len(self.transactions)}{transactions_str}"
         )
+
